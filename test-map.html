@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SF CLE — Matching Engine Test Map</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        #map { width: 100vw; height: 100vh; }
+        #panel {
+            position: absolute; top: 12px; right: 12px; z-index: 1000;
+            background: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.15);
+            width: 360px; max-height: calc(100vh - 24px); overflow-y: auto;
+            font-size: 14px;
+        }
+        #panel-header {
+            padding: 16px 20px; border-bottom: 1px solid #eee;
+            font-size: 18px; font-weight: 700;
+        }
+        #panel-header span { color: #666; font-weight: 400; font-size: 13px; display: block; margin-top: 2px; }
+        #result { padding: 16px 20px; }
+        .match-street { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+        .match-block { color: #666; margin-bottom: 12px; }
+        .match-meta { display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+        .meta-chip {
+            background: #f0f0f0; border-radius: 6px; padding: 4px 10px;
+            font-size: 12px; font-weight: 600;
+        }
+        .side-section { margin-bottom: 16px; }
+        .side-label {
+            font-weight: 700; font-size: 13px; text-transform: uppercase;
+            letter-spacing: 0.5px; margin-bottom: 8px;
+            padding: 4px 10px; border-radius: 6px; display: inline-block;
+        }
+        .side-yours { background: #dcfce7; color: #166534; }
+        .side-other { background: #f3f4f6; color: #6b7280; }
+        .schedule-row {
+            display: flex; justify-content: space-between; padding: 6px 0;
+            border-bottom: 1px solid #f5f5f5;
+        }
+        .schedule-day { font-weight: 600; }
+        .schedule-hours { color: #666; }
+        .schedule-weeks { color: #999; font-size: 12px; }
+        .next-cleaning {
+            background: #fef3c7; border-radius: 8px; padding: 12px;
+            margin-top: 8px;
+        }
+        .next-cleaning-time { font-weight: 700; font-size: 16px; color: #92400e; }
+        .next-cleaning-until { color: #b45309; font-size: 13px; }
+        .no-match { color: #999; padding: 40px 0; text-align: center; }
+        .no-match-icon { font-size: 48px; margin-bottom: 12px; }
+        .test-points { padding: 12px 20px; border-top: 1px solid #eee; }
+        .test-points h3 { font-size: 12px; color: #999; margin-bottom: 8px; text-transform: uppercase; }
+        .test-btn {
+            display: block; width: 100%; text-align: left; padding: 8px 12px;
+            border: none; background: #f8f8f8; border-radius: 6px; cursor: pointer;
+            margin-bottom: 4px; font-size: 13px; font-family: inherit;
+        }
+        .test-btn:hover { background: #eef; }
+        .loading { text-align: center; padding: 40px; color: #999; }
+        .warning { background: #fef9e7; padding: 10px 12px; border-radius: 6px; font-size: 12px; color: #856404; margin-top: 12px; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="panel">
+        <div id="panel-header">
+            SF CLE <span>Click anywhere on the map to test matching</span>
+        </div>
+        <div id="result">
+            <div class="no-match">
+                <div class="no-match-icon">📍</div>
+                Click on any SF street to see<br>its cleaning schedule
+            </div>
+        </div>
+        <div class="test-points">
+            <h3>Quick test locations</h3>
+            <button class="test-btn" onclick="testPoint(37.7837, -122.4070)">📍 Market & 5th</button>
+            <button class="test-btn" onclick="testPoint(37.7522, -122.4184)">📍 Mission & 24th</button>
+            <button class="test-btn" onclick="testPoint(37.7648, -122.4216)">📍 Valencia & 16th</button>
+            <button class="test-btn" onclick="testPoint(37.7694, -122.4470)">📍 Haight & Ashbury</button>
+            <button class="test-btn" onclick="testPoint(37.7755, -122.4376)">📍 Divisadero & Hayes</button>
+            <button class="test-btn" onclick="testPoint(37.7637, -122.4680)">📍 Irving St (Sunset)</button>
+            <button class="test-btn" onclick="testPoint(37.7979, -122.4068)">📍 Columbus & Broadway</button>
+            <button class="test-btn" onclick="testPoint(37.7839, -122.4462)">📍 Geary & Masonic</button>
+            <button class="test-btn" onclick="testPoint(37.7735, -122.4103)">📍 Folsom & 7th</button>
+            <button class="test-btn" onclick="testPoint(37.7616, -122.4243)">📍 Guerrero & 18th</button>
+        </div>
+    </div>
+
+    <script>
+        const map = L.map('map').setView([37.7749, -122.4194], 14);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors',
+            maxZoom: 19
+        }).addTo(map);
+
+        let marker = null;
+
+        // Load street segments overlay — set interactive: false so clicks pass through to the map
+        fetch('/segments.geojson')
+            .then(r => r.json())
+            .then(data => {
+                const dayColors = {
+                    'Mon': '#e74c3c', 'Tue': '#e67e22', 'Wed': '#f1c40f',
+                    'Thu': '#2ecc71', 'Fri': '#3498db', 'Sat': '#9b59b6',
+                    'Sun': '#1abc9c', 'Holiday': '#95a5a6'
+                };
+
+                L.geoJSON(data, {
+                    interactive: false,
+                    style: f => ({
+                        color: dayColors[f.properties.day] || '#999',
+                        weight: 2,
+                        opacity: 0.4
+                    })
+                }).addTo(map);
+
+                const legend = L.control({ position: 'bottomleft' });
+                legend.onAdd = function() {
+                    const div = L.DomUtil.create('div');
+                    div.style.cssText = 'background:white;padding:10px 14px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,0.1);font-size:12px;';
+                    div.innerHTML = '<b>Cleaning Day</b><br>' +
+                        Object.entries(dayColors).map(([day, color]) =>
+                            `<span style="display:inline-block;width:12px;height:12px;background:${color};border-radius:2px;margin-right:4px;vertical-align:middle;"></span>${day}`
+                        ).join('<br>');
+                    return div;
+                };
+                legend.addTo(map);
+
+                console.log('GeoJSON loaded: ' + data.features.length + ' features');
+            })
+            .catch(err => console.error('GeoJSON load error:', err));
+
+        // Map click handler
+        map.on('click', function(e) {
+            console.log('Map clicked:', e.latlng.lat, e.latlng.lng);
+            testPoint(e.latlng.lat, e.latlng.lng);
+        });
+
+        async function testPoint(lat, lng) {
+            if (marker) map.removeLayer(marker);
+            marker = L.marker([lat, lng], {
+                icon: L.divIcon({
+                    html: '<div style="background:#4f46e5;width:16px;height:16px;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);"></div>',
+                    iconSize: [16, 16],
+                    iconAnchor: [8, 8]
+                })
+            }).addTo(map);
+
+            map.panTo([lat, lng]);
+
+            document.getElementById('result').innerHTML = '<div class="loading">Matching...</div>';
+
+            try {
+                const res = await fetch('/api/match?lat=' + lat + '&lng=' + lng);
+                const data = await res.json();
+                renderResult(data, lat, lng);
+            } catch (err) {
+                document.getElementById('result').innerHTML = '<div class="no-match">Error: ' + err.message + '</div>';
+            }
+        }
+
+        function renderResult(data, lat, lng) {
+            const el = document.getElementById('result');
+
+            if (!data.matched) {
+                el.innerHTML =
+                    '<div class="no-match">' +
+                    '<div class="no-match-icon">🚫</div>' +
+                    data.reason + '<br>' +
+                    (data.nearestStreet ? '<br>Nearest: ' + data.nearestStreet + ' (' + data.distance + 'm)' : '') +
+                    '</div>';
+                return;
+            }
+
+            var html = '<div class="match-street">' + data.street + '</div>' +
+                '<div class="match-block">' + data.block + '</div>' +
+                '<div class="match-meta">' +
+                '<span class="meta-chip">📏 ' + data.distance + '</span>' +
+                '<span class="meta-chip">🧭 Side ' + data.computedSide + '</span>' +
+                '<span class="meta-chip">📊 ' + data.candidateCount + ' candidates</span>' +
+                '</div>';
+
+            // Your side
+            html += '<div class="side-section">' +
+                '<div class="side-label side-yours">Your side (' + data.yourSide.side + ')</div>';
+
+            if (data.yourSide.schedules.length) {
+                data.yourSide.schedules.forEach(function(s) {
+                    html += '<div class="schedule-row">' +
+                        '<span class="schedule-day">' + s.day + '</span>' +
+                        '<span class="schedule-hours">' + s.hours + '</span>' +
+                        '<span class="schedule-weeks">' + s.weeks + '</span>' +
+                        '</div>';
+                });
+            } else {
+                html += '<div style="color:#999;padding:8px 0;">No cleaning on this side</div>';
+            }
+
+            if (data.yourSide.nextCleanings && data.yourSide.nextCleanings.length > 0) {
+                var nc = data.yourSide.nextCleanings[0];
+                html += '<div class="next-cleaning">' +
+                    '<div class="next-cleaning-time">⏰ ' + nc.date + ' ' + nc.start + '-' + nc.end + '</div>' +
+                    '<div class="next-cleaning-until">' + nc.hoursUntil + ' hours from now</div>' +
+                    '</div>';
+            }
+            html += '</div>';
+
+            // Other side
+            html += '<div class="side-section">' +
+                '<div class="side-label side-other">Other side (' + data.otherSide.side + ')</div>';
+
+            if (data.otherSide.schedules.length) {
+                data.otherSide.schedules.forEach(function(s) {
+                    html += '<div class="schedule-row">' +
+                        '<span class="schedule-day">' + s.day + '</span>' +
+                        '<span class="schedule-hours">' + s.hours + '</span>' +
+                        '<span class="schedule-weeks">' + s.weeks + '</span>' +
+                        '</div>';
+                });
+            } else {
+                html += '<div style="color:#999;padding:8px 0;">No cleaning on this side</div>';
+            }
+
+            if (data.otherSide.nextCleanings && data.otherSide.nextCleanings.length > 0) {
+                var nc2 = data.otherSide.nextCleanings[0];
+                html += '<div class="next-cleaning">' +
+                    '<div class="next-cleaning-time">⏰ ' + nc2.date + ' ' + nc2.start + '-' + nc2.end + '</div>' +
+                    '<div class="next-cleaning-until">' + nc2.hoursUntil + ' hours from now</div>' +
+                    '</div>';
+            }
+            html += '</div>';
+
+            html += '<div class="warning">⚠️ ' + data.note + '</div>';
+            html += '<div style="margin-top:12px;font-size:11px;color:#999;">Coords: ' + lat.toFixed(6) + ', ' + lng.toFixed(6) + '</div>';
+
+            el.innerHTML = html;
+        }
+    </script>
+</body>
+</html>
