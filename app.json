@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "9f7c2eff-1d0e-4ece-9748-e337ae28bc7d"
+      }
+    },
+    "ios": {
+      "bundleIdentifier": "com.ravkar.pipeline",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.ravkar.pipeline"
+    }
+  }
+}

@@ -12,10 +12,15 @@ var PORT = process.env.PORT || 3456;
 function downloadDatabase() {
   return new Promise(function(resolve, reject) {
     if (fs.existsSync(DB_PATH)) {
-      console.log('Database already exists');
-      resolve();
-      return;
-    }
+  var size = fs.statSync(DB_PATH).size;
+  if (size > 1000000) {
+    console.log('Database already exists and looks valid');
+    resolve();
+    return;
+  }
+  console.log('Database exists but looks corrupted, re-downloading...');
+  fs.unlinkSync(DB_PATH);
+}
     console.log('Downloading database from GitHub...');
     var file = fs.createWriteStream(DB_PATH);
     function download(url) {
