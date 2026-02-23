@@ -1,57 +1,50 @@
-const http = require('http');
-const fs = require('fs');
-const path = require('path');
-const { matchLocation } = require('./match');
-const Database = require('better-sqlite3');
+var fs = require('fs');
+var https = require('https');
+var http = require('http');
+var path = require('path');
+var { matchLocation } = require('./match');
+var Database = require('better-sqlite3');
 
-const DB_PATH = path.join(__dirname, 'sf_cle.db');
-const db = new Database(DB_PATH, { readonly: true });
+var DB_PATH = path.join(__dirname, 'sf_cle.db');
+var DB_URL = 'https://github.com/ravkar/swoopt-pipeline/releases/download/v1.0/sf_cle.db';
+var PORT = process.env.PORT || 3456;
 
-const PORT = 3456;
+function downloadDatabase() {
+  return new Promise(function(resolve, reject) {
+    if (fs.existsSync(DB_PATH)) {
+      console.log('Database already exists');
+      resolve();
+      return;
+    }
+    console.log('Downloading database from GitHub...');
+    var file = fs.createWriteStream(DB_PATH);
+    function download(url) {
+      https.get(url, function(response) {
+        if (response.statusCode === 301 || response.statusCode === 302) {
+          download(response.headers.location);
+          return;
+        }
+        response.pipe(file);
+        file.on('finish', function() {
+          file.close();
+          console.log('Database downloaded successfully!');
+          resolve();
+        });
+      }).on('error', function(err) {
+        fs.unlink(DB_PATH, function() {});
+        reject(err);
+      });
+    }
+    download(DB_URL);
+  });
+}
 
-const server = http.createServer((req, res) => {
-    const url = new URL(req.url, 'http://localhost');
+function startServer() {
+  var db = new Database(DB_PATH, { readonly: true });
+
+  var server = http.createServer(function(req, res) {
+    var url = new URL(req.url, 'http://localhost');
 
     if (url.pathname === '/') {
-        res.writeHead(200, { 'Content-Type': 'text/html' });
-        res.end(fs.readFileSync(path.join(__dirname, 'test-map.html')));
-        return;
-    }
-
-    if (url.pathname === '/segments.geojson') {
-        res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-        });
-        fs.createReadStream(path.join(__dirname, 'segments.geojson')).pipe(res);
-        return;
-    }
-
-    if (url.pathname === '/api/match') {
-        const lat = parseFloat(url.searchParams.get('lat'));
-        const lng = parseFloat(url.searchParams.get('lng'));
-
-        if (isNaN(lat) || isNaN(lng)) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'lat and lng required' }));
-            return;
-        }
-
-        const result = matchLocation(lat, lng, { db });
-        res.writeHead(200, {
-            'Content-Type': 'application/json',
-            'Access-Control-Allow-Origin': '*'
-        });
-        res.end(JSON.stringify(result, null, 2));
-        return;
-    }
-
-    res.writeHead(404);
-    res.end('Not found');
-});
-
-server.listen(PORT, () => {
-    console.log(`\n🗺️  SF CLE Test Map: http://localhost:${PORT}\n`);
-    console.log('Click anywhere on the map to test the matching engine.');
-    console.log('Press Ctrl+C to stop.\n');
-});
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end
