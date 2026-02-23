@@ -47,4 +47,41 @@ function startServer() {
 
     if (url.pathname === '/') {
       res.writeHead(200, { 'Content-Type': 'text/plain' });
-      res.end
+      res.end('Swoopt API is running');
+      return;
+    }
+
+    if (url.pathname === '/api/match') {
+      var lat = parseFloat(url.searchParams.get('lat'));
+      var lng = parseFloat(url.searchParams.get('lng'));
+      if (isNaN(lat) || isNaN(lng)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'lat and lng required' }));
+        return;
+      }
+      var result = matchLocation(lat, lng, { db });
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    res.writeHead(404);
+    res.end('Not found');
+  });
+
+  server.listen(PORT, function() {
+    console.log('Swoopt API running on port ' + PORT);
+  });
+}
+
+downloadDatabase()
+  .then(function() {
+    startServer();
+  })
+  .catch(function(err) {
+    console.error('Failed to download database:', err);
+    process.exit(1);
+  });
