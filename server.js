@@ -6,7 +6,7 @@ var { matchLocation } = require('./match');
 var Database = require('better-sqlite3');
 
 var DB_PATH = path.join(__dirname, 'sf_cle.db');
-var DB_URL = 'https://github.com/ravkar/swoopt-pipeline/releases/download/v1.0/sf_cle.db';
+var DB_URL = 'https://github.com/ravikarthick/swoopt-pipeline/releases/download/v1.0/sf_cle.db';
 var PORT = process.env.PORT || 3456;
 
 function downloadDatabase() {
