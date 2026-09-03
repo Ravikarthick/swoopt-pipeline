@@ -60,7 +60,7 @@ function weekOfMonth(date) {
 function getNextCleaning(schedules, fromDate) {
     const now = fromDate || new Date();
     const results = [];
-    for (let d = 0; d < 14; d++) {
+    for (let d = 0; d < 35; d++) {
         const checkDate = new Date(now);
         checkDate.setDate(checkDate.getDate() + d);
         const dayOfWeek = checkDate.getDay();
@@ -104,7 +104,7 @@ function matchLocation(lat, lng, options) {
 
     try {
         const candidates = db.prepare(
-            'SELECT id, cnn, corridor, limits_desc, side, block_side, block_sweep_id, geom_json, center_lng, center_lat FROM segments WHERE min_lng <= ? AND max_lng >= ? AND min_lat <= ? AND max_lat >= ?'
+            'SELECT id, cnn, corridor, limits_desc, side, block_side, block_sweep_id, geom_json, center_lng, center_lat, city, enforced FROM segments WHERE min_lng <= ? AND max_lng >= ? AND min_lat <= ? AND max_lat >= ?'
         ).all(lng + SEARCH_RADIUS_DEG, lng - SEARCH_RADIUS_DEG, lat + SEARCH_RADIUS_DEG, lat - SEARCH_RADIUS_DEG);
 
         if (candidates.length === 0) {
@@ -157,6 +157,8 @@ function matchLocation(lat, lng, options) {
 
         return {
             matched: true,
+            city: seg.city || 'SF',
+            enforced: seg.enforced == null ? true : !!seg.enforced,
             street: seg.corridor,
             block: seg.limits_desc,
             distance: bestDist.toFixed(1) + 'm',
