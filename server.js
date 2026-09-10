@@ -42,6 +42,22 @@ var SECURITY_HEADERS = {
   'Cache-Control': 'no-store'
 };
 
+function readBody(req) {
+  return new Promise(function (resolve) {
+    var chunks = '';
+    var tooBig = false;
+    req.on('data', function (c) {
+      chunks += c;
+      if (chunks.length > 10000) { tooBig = true; req.destroy(); }
+    });
+    req.on('end', function () {
+      if (tooBig) return resolve(null);
+      try { resolve(JSON.parse(chunks || '{}')); } catch (e) { resolve(null); }
+    });
+    req.on('error', function () { resolve(null); });
+  });
+}
+
 function startServer() {
   var db = new Database(DB_PATH, { readonly: true });
 
@@ -61,27 +77,53 @@ function startServer() {
     }
 
     if (url.pathname === '/api/match') {
-      var lat = parseFloat(url.searchParams.get('lat'));
-      var lng = parseFloat(url.searchParams.get('lng'));
-      if (isNaN(lat) || isNaN(lng)) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: 'lat and lng required' }));
+      if (req.method === 'OPTIONS') {
+        res.writeHead(204, Object.assign({
+          'Access-Control-Allow-Origin': '*',
+          'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+          'Access-Control-Allow-Headers': 'Content-Type'
+        }, SECURITY_HEADERS));
+        res.end();
         return;
       }
-      var result;
-      try {
-        result = matchLocation(lat, lng, { db });
-      } catch (e) {
-        console.error('match error:', e && e.message);
-        res.writeHead(500, Object.assign({ 'Content-Type': 'application/json' }, SECURITY_HEADERS));
-        res.end(JSON.stringify({ error: 'Lookup failed. Please try again.' }));
+
+      function respond(lat, lng) {
+        if (isNaN(lat) || isNaN(lng)) {
+          res.writeHead(400, Object.assign({ 'Content-Type': 'application/json' }, SECURITY_HEADERS));
+          res.end(JSON.stringify({ error: 'lat and lng required' }));
+          return;
+        }
+        var result;
+        try {
+          result = matchLocation(lat, lng, { db });
+        } catch (e) {
+          console.error('match error:', e && e.message);
+          res.writeHead(500, Object.assign({ 'Content-Type': 'application/json' }, SECURITY_HEADERS));
+          res.end(JSON.stringify({ error: 'Lookup failed. Please try again.' }));
+          return;
+        }
+        res.writeHead(200, Object.assign({
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*'
+        }, SECURITY_HEADERS));
+        res.end(JSON.stringify(result, null, 2));
+      }
+
+      // POST keeps coordinates out of URLs and server logs.
+      // GET is still supported so older app builds keep working.
+      if (req.method === 'POST') {
+        readBody(req).then(function (body) {
+          if (!body) {
+            res.writeHead(400, Object.assign({ 'Content-Type': 'application/json' }, SECURITY_HEADERS));
+            res.end(JSON.stringify({ error: 'Invalid request body' }));
+            return;
+          }
+          respond(parseFloat(body.lat), parseFloat(body.lng));
+        });
         return;
       }
-      res.writeHead(200, Object.assign({
-        'Content-Type': 'application/json',
-        'Access-Control-Allow-Origin': '*'
-      }, SECURITY_HEADERS));
-      res.end(JSON.stringify(result, null, 2));
+
+      respond(parseFloat(url.searchParams.get('lat')), parseFloat(url.searchParams.get('lng')));
       return;
     }
 
