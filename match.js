@@ -95,14 +95,47 @@ function getNextCleaning(schedules, fromDate) {
     return results.sort(function(a, b) { return a.startTime - b.startTime; });
 }
 
+function pointInPolygon(pt, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+        const xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
+        const intersect = ((yi > pt[1]) !== (yj > pt[1])) && (pt[0] < (xj - xi) * (pt[1] - yi) / (yj - yi) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
+}
+
+// Is this point inside a known parking lot or garage (OSM amenity=parking)?
+function pointInLot(db, lat, lng) {
+    let rows;
+    try {
+        rows = db.prepare('SELECT name, kind, geom_json FROM lots WHERE min_lng <= ? AND max_lng >= ? AND min_lat <= ? AND max_lat >= ?').all(lng, lng, lat, lat);
+    } catch (e) { return null; }
+    for (const r of rows) {
+        if (pointInPolygon([lng, lat], JSON.parse(r.geom_json))) return { name: r.name, kind: r.kind };
+    }
+    return null;
+}
+
 function matchLocation(lat, lng, options) {
     options = options || {};
-    const maxDist = options.maxDistanceMeters || 200;
+    const maxDist = options.maxDistanceMeters || 60; // lots/garages are detected by polygon; this only guards against far-off matches
     const db = options.db || new Database(DB_PATH, { readonly: true });
     const shouldClose = !options.db;
     const point = [lng, lat];
 
     try {
+        const lot = pointInLot(db, lat, lng);
+        if (lot) {
+            return {
+                matched: false,
+                offStreet: true,
+                lot: lot.name || null,
+                lotType: lot.kind || null,
+                reason: 'Parked in ' + (lot.name ? lot.name : 'a parking ' + (lot.kind === 'surface' ? 'lot' : 'garage')) + ' - no street cleaning here',
+                coords: lat + ', ' + lng
+            };
+        }
         const candidates = db.prepare(
             'SELECT id, cnn, corridor, limits_desc, side, block_side, block_sweep_id, geom_json, center_lng, center_lat, city, enforced FROM segments WHERE min_lng <= ? AND max_lng >= ? AND min_lat <= ? AND max_lat >= ?'
         ).all(lng + SEARCH_RADIUS_DEG, lng - SEARCH_RADIUS_DEG, lat + SEARCH_RADIUS_DEG, lat - SEARCH_RADIUS_DEG);
@@ -131,7 +164,8 @@ function matchLocation(lat, lng, options) {
         if (!bestMatch || bestDist > maxDist) {
             return {
                 matched: false,
-                reason: 'Nearest segment is ' + bestDist.toFixed(1) + 'm away (max: ' + maxDist + 'm)',
+                reason: 'Off-street parking (nearest street is ' + bestDist.toFixed(0) + ' m away)',
+                offStreet: true,
                 nearestStreet: bestMatch ? bestMatch.segment.corridor : null,
                 distance: bestDist.toFixed(1),
                 coords: lat + ', ' + lng
